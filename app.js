@@ -15,7 +15,7 @@ const SAMPLE_META = {title:"vintage binder",
   source:"Built-in sample · Collectr prices as of 2026-09-10. Import a file to load a different collection.",
   dbTitle:"Sample collection", dbSub:"vintage binder · 177 cards · built in"};
 const DEFAULT_TIERS = [{start:0,pct:40},{start:25,pct:50},{start:50,pct:60},{start:100,pct:70}];
-const TIER_COLORS = ["var(--t1)","var(--t2)","var(--t3)","var(--t4)","var(--t5)","#5a8f3d","#b0546f","#4f6d8f","#8a7b3d","#666"];
+const TIER_COLORS = ["var(--t1)","var(--t2)","var(--t3)","var(--t4)","var(--t5)","#4f7fae","#3f9e70","#c98f3f","#c2593f","#8f8577"];
 
 let ITEMS = SAMPLE;
 let META = SAMPLE_META;
