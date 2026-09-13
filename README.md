@@ -1,4 +1,4 @@
-# Cajun Card Buyer
+# TCG Trading Post
 
 A single-page web app for turning a collection spreadsheet into a tiered
 buy offer. Import a CSV or Excel export, set your buy-percentage tiers by

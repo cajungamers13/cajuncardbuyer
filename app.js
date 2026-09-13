@@ -1,5 +1,5 @@
 /* =========================================================================
-   Cajun Card Buyer — buy-offer calculator with a flexible CSV/Excel importer
+   TCG Trading Post — buy-offer calculator with a flexible CSV/Excel importer
    -------------------------------------------------------------------------
    Import philosophy: only THREE things are actually required to bring a
    spreadsheet in — a product/card name, a price, and a quantity. Everything
