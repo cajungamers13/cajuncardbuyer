@@ -47,6 +47,70 @@ function loadSavedState(){
   }catch(e){ return null; }
 }
 
+/* =========================================================================
+   Card images — looked up on demand (when a line is opened, not eagerly for
+   the whole list) from the Pokémon TCG API (api.pokemontcg.io), a public
+   database built for exactly this: matching a card by name/set/number and
+   handing back a URL to its own hosted artwork. We only ever store the URL
+   and point an <img> at it — no card art is generated or bundled here.
+   Results are cached (in memory + localStorage) so re-opening a line, or
+   reloading the app, doesn't re-query. Only attempted for Pokémon cards.
+   ========================================================================= */
+const IMG_CACHE_KEY = "tcgTradingPost.imgCache.v1";
+let imgCache = {};
+try{ imgCache = JSON.parse(localStorage.getItem(IMG_CACHE_KEY) || "{}") || {}; }catch(e){ imgCache = {}; }
+function saveImgCache(){ try{ localStorage.setItem(IMG_CACHE_KEY, JSON.stringify(imgCache)); }catch(e){} }
+
+const stripAnnotation = s => (s||"").replace(/\s*\([^)]*\)\s*$/,"").trim();
+function imgCacheKey(it){
+  return [stripAnnotation(it.n), stripAnnotation(it.s), it.d||""].join("|").toLowerCase();
+}
+function isPokemonItem(it){
+  return !it.game || /pok[eé]mon/i.test(it.game);
+}
+function pickCardImage(cards, it){
+  if(!cards || !cards.length) return null;
+  const wantNum = (it.d||"").split("/")[0].replace(/^0+(?=\d)/,"");
+  const withImage = c => c.images && (c.images.large || c.images.small);
+  let best = wantNum ? cards.find(c => (c.number||"").replace(/^0+(?=\d)/,"")===wantNum && withImage(c)) : null;
+  if(!best) best = cards.find(withImage);
+  return best ? (best.images.large || best.images.small) : null;
+}
+// Queries the Pokémon TCG API for one card.
+// Returns: a URL string (found) · null (confirmed no match, cached) ·
+// undefined (network/CORS/rate-limit failure — NOT cached, so the next
+// time the line is opened it tries again instead of being stuck "checked").
+async function lookupCardImage(it){
+  const key = imgCacheKey(it);
+  if(Object.prototype.hasOwnProperty.call(imgCache, key)) return imgCache[key];
+  const name = stripAnnotation(it.n).replace(/"/g,"");
+  if(!name) return null;
+  const set = stripAnnotation(it.s).replace(/"/g,"");
+  let q = `name:"${name}"`;
+  if(set) q += ` set.name:"${set}"`;
+  let result; // stays undefined on failure; see return-type note above
+  try{
+    const res = await fetch("https://api.pokemontcg.io/v2/cards?q="+encodeURIComponent(q)+"&pageSize=15");
+    if(res.ok){
+      const json = await res.json();
+      result = pickCardImage(json.data, it);
+    }
+  }catch(e){ /* offline/CORS/rate-limited — leave undefined, retry on next open */ }
+  if(result !== undefined){ imgCache[key] = result; saveImgCache(); }
+  return result;
+}
+function maybeFetchCardImage(idx){
+  const it = ITEMS[idx];
+  if(!it || it.photo || it._imgUrl || it._imgLoading || it._imgChecked || !isPokemonItem(it)) return;
+  it._imgLoading = true;
+  renderList();
+  lookupCardImage(it).then(result=>{
+    it._imgLoading = false;
+    if(result !== undefined){ it._imgChecked = true; it._imgUrl = result; } // else: leave unchecked, retry next open
+    renderList();
+  });
+}
+
 const $ = s=>document.querySelector(s);
 const money = n => "$" + (n||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 const money0 = n => "$" + Math.round(n||0).toLocaleString("en-US");
@@ -464,8 +528,14 @@ function renderList(){
       it.date ? `<div class="drow"><span class="k">Date added</span><span class="val">${esc(it.date)}</span></div>` : "",
       it.watchlist ? `<div class="drow"><span class="k">Watchlist</span><span class="val">Yes</span></div>` : "",
       it.notes ? `<div class="drow"><span class="k">Notes</span><span class="val">${esc(it.notes)}</span></div>` : "",
-      it.photo ? `<div class="drow"><span class="k">Photo</span><span class="val"><a href="${esc(it.photo)}" target="_blank" rel="noopener">link</a></span></div>` : "",
     ].join("");
+
+    const photoUrl = it.photo || it._imgUrl;
+    const cardImgHtml = photoUrl
+      ? `<div class="card-img"><img src="${esc(photoUrl)}" alt="${esc(it.n)}" loading="lazy" onerror="this.closest('.card-img').remove()"></div>`
+      : it._imgLoading ? `<div class="card-img card-img-note">Looking up image…</div>`
+      : it._imgChecked ? `<div class="card-img card-img-note">No image found</div>`
+      : "";
 
     el.innerHTML=`
       <div class="item-main" data-idx="${o.idx}">
@@ -481,6 +551,7 @@ function renderList(){
         </div>
       </div>
       <div class="detail">
+        ${cardImgHtml}
         ${it.v?`<div class="drow"><span class="k">Variant</span><span class="val">${esc(it.v)}</span></div>`:""}
         ${it.c?`<div class="drow"><span class="k">Condition</span><span class="val">${esc(it.c)}</span></div>`:""}
         <div class="drow"><span class="k">Type</span><span class="val">${esc(it.t)}</span></div>
@@ -560,7 +631,7 @@ $("#list").addEventListener("click",e=>{
   const m=e.target.closest(".item-main"); if(!m) return;
   const idx=+m.dataset.idx, item=m.closest(".item");
   if(openItems.has(idx)){openItems.delete(idx); item.classList.remove("open");}
-  else{openItems.add(idx); item.classList.add("open");} });
+  else{openItems.add(idx); item.classList.add("open"); maybeFetchCardImage(idx);} });
 $("#list").addEventListener("change",e=>{ const inp=e.target.closest(".price-input"); if(!inp) return;
   applyPriceEdit(+inp.dataset.idx, inp.value); });
 $("#list").addEventListener("keydown",e=>{ if(e.key!=="Enter") return; const inp=e.target.closest(".price-input");
