@@ -68,15 +68,31 @@ function imgCacheKey(it){
 function isPokemonItem(it){
   return !it.game || /pok[eé]mon/i.test(it.game);
 }
+const cleanNum = s => (s||"").split("/")[0].replace(/^0+(?=\d)/,"").trim();
+// Never guess. A same-named card turns up constantly across unrelated sets
+// and printings, so this only ever returns a card when it's actually
+// pinned down: an exact number match when we have a number to check, or —
+// with no number to go on — a name+set query that came back with exactly
+// one image-bearing candidate. Anything less certain returns null rather
+// than showing whichever result happened to come back first.
 function pickCardImage(cards, it){
   if(!cards || !cards.length) return null;
-  const wantNum = (it.d||"").split("/")[0].replace(/^0+(?=\d)/,"");
   const withImage = c => c.images && (c.images.large || c.images.small);
-  let best = wantNum ? cards.find(c => (c.number||"").replace(/^0+(?=\d)/,"")===wantNum && withImage(c)) : null;
-  if(!best) best = cards.find(withImage);
-  return best ? (best.images.large || best.images.small) : null;
+  const wantNum = cleanNum(it.d);
+  if(wantNum){
+    const match = cards.find(c => cleanNum(c.number)===wantNum && withImage(c));
+    return match ? (match.images.large || match.images.small) : null;
+  }
+  const withImg = cards.filter(withImage);
+  return withImg.length===1 ? (withImg[0].images.large || withImg[0].images.small) : null;
 }
-// Queries the Pokémon TCG API for one card.
+// Queries the Pokémon TCG API for one card, matching on name + set + number
+// together. Tries the tightest query first (all three, straight from the
+// source); only widens to name+set if that comes back empty, since the
+// API's number formatting doesn't always match ours (leading zeros, promo
+// prefixes) — pickCardImage still enforces an exact number match against
+// whatever the wider query returns, so widening the search never widens
+// what gets accepted.
 // Returns: a URL string (found) · null (confirmed no match, cached) ·
 // undefined (network/CORS/rate-limit failure — NOT cached, so the next
 // time the line is opened it tries again instead of being stuck "checked").
@@ -86,14 +102,24 @@ async function lookupCardImage(it){
   const name = stripAnnotation(it.n).replace(/"/g,"");
   if(!name) return null;
   const set = stripAnnotation(it.s).replace(/"/g,"");
-  let q = `name:"${name}"`;
-  if(set) q += ` set.name:"${set}"`;
+  const num = cleanNum(it.d).replace(/"/g,"");
+
+  const runQuery = async (parts) => {
+    const res = await fetch("https://api.pokemontcg.io/v2/cards?q="+encodeURIComponent(parts.join(" "))+"&pageSize=25");
+    return res.ok ? (await res.json()).data : undefined;
+  };
+
   let result; // stays undefined on failure; see return-type note above
   try{
-    const res = await fetch("https://api.pokemontcg.io/v2/cards?q="+encodeURIComponent(q)+"&pageSize=15");
-    if(res.ok){
-      const json = await res.json();
-      result = pickCardImage(json.data, it);
+    const base = [`name:"${name}"`];
+    if(set) base.push(`set.name:"${set}"`);
+    if(num){
+      const tight = await runQuery([...base, `number:"${num}"`]);
+      if(tight !== undefined) result = pickCardImage(tight, it);
+    }
+    if(result == null){ // no number to search with, or the tight query found nothing
+      const broader = await runQuery(base);
+      if(broader !== undefined) result = pickCardImage(broader, it);
     }
   }catch(e){ /* offline/CORS/rate-limited — leave undefined, retry on next open */ }
   if(result !== undefined){ imgCache[key] = result; saveImgCache(); }
