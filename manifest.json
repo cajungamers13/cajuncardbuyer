@@ -1,0 +1,17 @@
+{
+  "name": "TCG Trading Post",
+  "short_name": "Trading Post",
+  "description": "Tiered buy-offer calculator for TCG collections — import a CSV or Excel export and get an instant offer.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "id": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#100f0d",
+  "theme_color": "#100f0d",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

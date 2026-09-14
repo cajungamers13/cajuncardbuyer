@@ -30,6 +30,23 @@ let tiers = DEFAULT_TIERS.map(t=>({...t}));
 let filter = "all", sortKey = "mkt", query = "";
 const openItems = new Set();
 
+/* ---------- local persistence (so an installed/offline app keeps its data) ---------- */
+const STORAGE_KEY = "tcgTradingPost.v1";
+function saveState(){
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({items:ITEMS, meta:META, isSample, tiers}));
+  }catch(e){ /* storage unavailable (private mode, quota) — app still works in-memory */ }
+}
+function loadSavedState(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(!raw) return null;
+    const data = JSON.parse(raw);
+    if(!data || !Array.isArray(data.items) || !data.items.length) return null;
+    return data;
+  }catch(e){ return null; }
+}
+
 const $ = s=>document.querySelector(s);
 const money = n => "$" + (n||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 const money0 = n => "$" + Math.round(n||0).toLocaleString("en-US");
@@ -481,7 +498,7 @@ function renderList(){
   }
   list.innerHTML=""; list.appendChild(frag);
 }
-function refreshAll(){ const c=compute(); renderSummary(c); renderBands(c); renderList(); }
+function refreshAll(){ const c=compute(); renderSummary(c); renderBands(c); renderList(); saveState(); }
 
 /* ---------- manual per-item price override ---------- */
 function applyPriceEdit(idx, raw){
@@ -567,6 +584,21 @@ $("#pasteBtn").addEventListener("click",()=>{ const t=$("#pasteArea").value;
   if(importText(t,"Pasted CSV")){ $("#pasteArea").value=""; $("#pasteBar").open=false; } });
 
 /* ---------- init ---------- */
+// Restore whatever was last loaded (an import, edits, tier changes) so an
+// installed/offline app opens back up where you left it instead of resetting
+// to the sample every time.
+(function restoreSavedState(){
+  const saved = loadSavedState();
+  if(!saved) return;
+  ITEMS = saved.items;
+  META = saved.meta || SAMPLE_META;
+  isSample = !!saved.isSample;
+  if(Array.isArray(saved.tiers) && saved.tiers.length) tiers = saved.tiers;
+})();
 renderTiers();
 configureChips();
 refreshAll();
+
+if("serviceWorker" in navigator){
+  window.addEventListener("load", ()=>{ navigator.serviceWorker.register("sw.js").catch(()=>{}); });
+}
