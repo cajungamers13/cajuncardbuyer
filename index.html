@@ -229,6 +229,15 @@
   .math b{color:var(--accent-bright)}
   .ovtag{display:inline-block; margin-left:6px; font-size:10px; font-weight:700; color:var(--gold);
     background:var(--gold-soft); border-radius:5px; padding:1px 5px; vertical-align:middle}
+  .price-edit{display:inline-flex; align-items:center; gap:6px}
+  .price-edit .cur{color:var(--text-faint); font-weight:600}
+  .price-input{width:76px; border:1px solid var(--line-2); background:var(--surface-2); border-radius:8px;
+    padding:5px 7px; font:inherit; font-size:13px; font-weight:600; color:var(--text); text-align:right}
+  .price-input:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft)}
+  .price-reset{border:none; background:transparent; color:var(--text-faint); font-size:15px; cursor:pointer;
+    padding:2px 5px; border-radius:6px; line-height:1; transition:background-color .15s ease, color .15s ease}
+  .price-reset:active{background:var(--surface-3); color:var(--text)}
+  @media (hover:hover){ .price-reset:hover{background:var(--surface-3); color:var(--text)} }
   .extra-head{font-size:10.5px; font-weight:700; color:var(--text-faint); letter-spacing:.4px;
     text-transform:uppercase; margin:12px 0 2px}
 

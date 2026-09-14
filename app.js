@@ -17,7 +17,13 @@ const SAMPLE_META = {title:"vintage binder",
 const DEFAULT_TIERS = [{start:0,pct:40},{start:25,pct:50},{start:50,pct:60},{start:100,pct:70}];
 const TIER_COLORS = ["var(--t1)","var(--t2)","var(--t3)","var(--t4)","var(--t5)","#4f7fae","#3f9e70","#c98f3f","#c2593f","#8f8577"];
 
-let ITEMS = SAMPLE;
+// Stamps each item with its as-loaded price (origP) and import-override flag (origO)
+// so a manual price edit in the UI can later be reset back to what was imported.
+function withOrigin(items){
+  return items.map(it => ({...it, origP: it.p, origO: !!it.o}));
+}
+
+let ITEMS = withOrigin(SAMPLE);
 let META = SAMPLE_META;
 let isSample = true;
 let tiers = DEFAULT_TIERS.map(t=>({...t}));
@@ -286,7 +292,7 @@ function applyImport(res, name, formatNote){
   const sub = items.length+" items · "+format+(formatNote||"")+" · <a id='resetData'>use sample</a>";
   const meta = {title, dbTitle:"Imported", dbSub:sub,
     source:"Imported from "+esc(name)+" ("+format+" format detected). "};
-  loadData(items, meta, false);
+  loadData(withOrigin(items), meta, false);
   const w=$("#dbWarn");
   if(warnings && warnings.length){ w.innerHTML = warnings.map(esc).join("<br>"); w.classList.add("show"); }
   else { w.classList.remove("show"); w.textContent=""; }
@@ -461,7 +467,11 @@ function renderList(){
         ${it.v?`<div class="drow"><span class="k">Variant</span><span class="val">${esc(it.v)}</span></div>`:""}
         ${it.c?`<div class="drow"><span class="k">Condition</span><span class="val">${esc(it.c)}</span></div>`:""}
         <div class="drow"><span class="k">Type</span><span class="val">${esc(it.t)}</span></div>
-        <div class="drow"><span class="k">Price / unit${it.o?`<span class="ovtag">manual</span>`:""}</span><span class="val num">${money(it.p)}</span></div>
+        <div class="drow"><span class="k">Price / unit${it.o?`<span class="ovtag">manual</span>`:""}</span>
+          <span class="val num price-edit">
+            <span class="cur">$</span><input type="text" inputmode="decimal" class="price-input num" data-idx="${o.idx}" value="${it.p.toFixed(2)}" aria-label="Override unit price for ${esc(it.n)}">
+            ${(it.origP!=null && it.p!==it.origP)?`<button class="price-reset" data-idx="${o.idx}" title="Reset to imported price ${money(it.origP)}" aria-label="Reset price">↺</button>`:""}
+          </span></div>
         <div class="drow"><span class="k">Quantity</span><span class="val num">${it.q}</span></div>
         ${knownExtras}
         ${extraRows?`<div class="extra-head">Additional info</div>${extraRows}`:""}
@@ -472,6 +482,26 @@ function renderList(){
   list.innerHTML=""; list.appendChild(frag);
 }
 function refreshAll(){ const c=compute(); renderSummary(c); renderBands(c); renderList(); }
+
+/* ---------- manual per-item price override ---------- */
+function applyPriceEdit(idx, raw){
+  const it = ITEMS[idx];
+  if(!it || raw.trim()==="" ){ renderList(); return; } // blank/missing — just redraw to restore the shown value
+  const v = numClean(raw);
+  if(!(v>=0)){ renderList(); return; } // invalid or negative — revert
+  const rounded = Math.round(v*100)/100;
+  if(rounded===it.p){ renderList(); return; }
+  it.p = rounded;
+  it.o = true;
+  refreshAll();
+}
+function resetItemPrice(idx){
+  const it = ITEMS[idx];
+  if(!it || it.origP==null) return;
+  it.p = it.origP;
+  it.o = !!it.origO;
+  refreshAll();
+}
 
 /* ---------- events ---------- */
 $("#tierRows").addEventListener("click",e=>{
@@ -506,14 +536,22 @@ $("#clrSearch").addEventListener("click",()=>{ $("#search").value=""; query="";
 $("#chips").addEventListener("click",e=>{ const c=e.target.closest(".chip"); if(!c) return;
   filter=c.dataset.f; [...$("#chips").children].forEach(ch=>ch.setAttribute("aria-pressed",ch===c)); renderList(); });
 $("#sort").addEventListener("change",e=>{ sortKey=e.target.value; renderList(); });
-$("#list").addEventListener("click",e=>{ const m=e.target.closest(".item-main"); if(!m) return;
+$("#list").addEventListener("click",e=>{
+  const reset=e.target.closest(".price-reset");
+  if(reset){ resetItemPrice(+reset.dataset.idx); return; }
+  if(e.target.closest(".price-input")) return; // clicking into the field shouldn't toggle the row
+  const m=e.target.closest(".item-main"); if(!m) return;
   const idx=+m.dataset.idx, item=m.closest(".item");
   if(openItems.has(idx)){openItems.delete(idx); item.classList.remove("open");}
   else{openItems.add(idx); item.classList.add("open");} });
+$("#list").addEventListener("change",e=>{ const inp=e.target.closest(".price-input"); if(!inp) return;
+  applyPriceEdit(+inp.dataset.idx, inp.value); });
+$("#list").addEventListener("keydown",e=>{ if(e.key!=="Enter") return; const inp=e.target.closest(".price-input");
+  if(!inp) return; e.preventDefault(); inp.blur(); });
 
 $("#csvInput").addEventListener("change",e=>{ const f=e.target.files&&e.target.files[0]; if(f) importFile(f); e.target.value=""; });
 // "use sample" link (delegated, since dbSub is re-rendered)
-$("#dbSub").addEventListener("click",e=>{ if(e.target.id==="resetData"){ loadData(SAMPLE, SAMPLE_META, true); $("#dbWarn").classList.remove("show"); } });
+$("#dbSub").addEventListener("click",e=>{ if(e.target.id==="resetData"){ loadData(withOrigin(SAMPLE), SAMPLE_META, true); $("#dbWarn").classList.remove("show"); } });
 
 // drag & drop (desktop)
 const DROPPABLE_RE = /\.(csv|tsv|txt|xlsx|xls)$/i;
