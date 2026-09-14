@@ -248,10 +248,20 @@
   @media (hover:hover){ .price-reset:hover{background:var(--surface-3); color:var(--text)} }
   .extra-head{font-size:10.5px; font-weight:700; color:var(--text-faint); letter-spacing:.4px;
     text-transform:uppercase; margin:12px 0 2px}
-  .card-img{display:flex; justify-content:center; margin:2px 0 12px}
+  .card-img{display:flex; justify-content:center; margin:2px 0 6px}
   .card-img img{max-height:220px; max-width:100%; border-radius:10px; border:1px solid var(--line-2)}
+  .photo-remove{display:block; margin:0 auto 12px; border:none; background:transparent; color:var(--text-faint);
+    font-size:11.5px; text-decoration:underline; cursor:pointer; padding:2px}
+  .photo-remove:hover{color:var(--text)}
+  .card-img-manual{margin:2px 0 12px}
   .card-img-note{width:100%; text-align:center; font-size:12px; color:var(--text-faint);
     background:var(--surface-3); border-radius:10px; padding:14px}
+  .photo-add-row{display:flex; gap:8px; margin-top:8px}
+  .photo-input{flex:1; min-width:0; border:1px solid var(--line-2); background:var(--surface-2);
+    border-radius:8px; padding:8px 10px; font:inherit; font-size:12.5px; color:var(--text)}
+  .photo-input::placeholder{color:var(--text-faint)}
+  .photo-input:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft)}
+  .photo-add{flex:none; padding:8px 14px; font-size:12.5px}
 
   .empty{padding:44px 20px; text-align:center; color:var(--text-faint); font-size:14px}
   footer{margin:22px var(--pad) 0; font-size:11.5px; color:var(--text-faint); line-height:1.6}

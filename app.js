@@ -99,9 +99,15 @@ async function lookupCardImage(it){
   if(result !== undefined){ imgCache[key] = result; saveImgCache(); }
   return result;
 }
+// The card database only knows individual cards, not sealed product — so a
+// Sealed-typed row (booster box, ETB, ...) skips the automatic lookup
+// entirely and goes straight to "no photo, paste one" rather than searching
+// for a "card" that was never going to match.
+function canAutoLookup(it){ return it.t !== "Sealed" && isPokemonItem(it); }
 function maybeFetchCardImage(idx){
   const it = ITEMS[idx];
-  if(!it || it.photo || it._imgUrl || it._imgLoading || it._imgChecked || !isPokemonItem(it)) return;
+  if(!it || it.photo || it._imgUrl || it._imgLoading || it._imgChecked) return;
+  if(!canAutoLookup(it)){ it._imgChecked = true; renderList(); return; }
   it._imgLoading = true;
   renderList();
   lookupCardImage(it).then(result=>{
@@ -110,6 +116,26 @@ function maybeFetchCardImage(idx){
     renderList();
   });
 }
+// A viewer can attach their own image link for anything the lookup can't
+// cover (sealed product, or a single the database missed) — same "manual
+// override" spirit as the price field above.
+function commitPhotoUrl(idx, raw){
+  const it = ITEMS[idx]; if(!it) return;
+  const url = (raw||"").trim();
+  if(!/^https?:\/\//i.test(url)) return; // silently ignore anything that isn't a URL
+  it.photo = url; it.userPhoto = true; it._imgChecked = true;
+  refreshAll();
+}
+function removePhoto(idx){
+  const it = ITEMS[idx]; if(!it) return;
+  it.photo = ""; it.userPhoto = false;
+  refreshAll();
+}
+window.handleCardImgError = function(idx){
+  const it = ITEMS[idx]; if(!it) return;
+  it.photo = ""; it._imgUrl = null; it.userPhoto = false;
+  refreshAll(); // persist the cleared state too, so a dead link doesn't keep resurfacing
+};
 
 const $ = s=>document.querySelector(s);
 const money = n => "$" + (n||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -530,12 +556,29 @@ function renderList(){
       it.notes ? `<div class="drow"><span class="k">Notes</span><span class="val">${esc(it.notes)}</span></div>` : "",
     ].join("");
 
-    const photoUrl = it.photo || it._imgUrl;
-    const cardImgHtml = photoUrl
-      ? `<div class="card-img"><img src="${esc(photoUrl)}" alt="${esc(it.n)}" loading="lazy" onerror="this.closest('.card-img').remove()"></div>`
-      : it._imgLoading ? `<div class="card-img card-img-note">Looking up image…</div>`
-      : it._imgChecked ? `<div class="card-img card-img-note">No image found</div>`
-      : "";
+    // The image block carries async state (loading/checked) that's only ever
+    // meaningful once a line has actually been opened (that's what triggers
+    // the lookup) — skip building it for collapsed rows entirely so nothing
+    // momentarily shows "no photo" before a fetch has even had a chance to run.
+    let cardImgHtml = "";
+    if(openItems.has(o.idx)){
+      const photoUrl = it.photo || it._imgUrl;
+      if(photoUrl){
+        cardImgHtml = `<div class="card-img"><img src="${esc(photoUrl)}" alt="${esc(it.n)}" loading="lazy" onerror="handleCardImgError(${o.idx})"></div>
+          ${it.userPhoto?`<button class="photo-remove" data-idx="${o.idx}">Remove image</button>`:""}`;
+      } else if(it._imgLoading){
+        cardImgHtml = `<div class="card-img-note">Looking up image…</div>`;
+      } else {
+        const note = canAutoLookup(it) ? "No image found automatically." : "No photo in this import.";
+        cardImgHtml = `<div class="card-img-manual">
+          <div class="card-img-note">${note}</div>
+          <div class="photo-add-row">
+            <input type="text" class="photo-input" data-idx="${o.idx}" placeholder="Paste an image URL…" inputmode="url">
+            <button class="btn photo-add" data-idx="${o.idx}">Add</button>
+          </div>
+        </div>`;
+      }
+    }
 
     el.innerHTML=`
       <div class="item-main" data-idx="${o.idx}">
@@ -627,15 +670,36 @@ $("#sort").addEventListener("change",e=>{ sortKey=e.target.value; renderList(); 
 $("#list").addEventListener("click",e=>{
   const reset=e.target.closest(".price-reset");
   if(reset){ resetItemPrice(+reset.dataset.idx); return; }
-  if(e.target.closest(".price-input")) return; // clicking into the field shouldn't toggle the row
+  const photoRemove=e.target.closest(".photo-remove");
+  if(photoRemove){ removePhoto(+photoRemove.dataset.idx); return; }
+  const photoAdd=e.target.closest(".photo-add");
+  if(photoAdd){
+    const input = photoAdd.parentElement.querySelector(".photo-input");
+    if(input) commitPhotoUrl(+photoAdd.dataset.idx, input.value);
+    return;
+  }
+  if(e.target.closest(".price-input") || e.target.closest(".photo-input")) return; // typing shouldn't toggle the row
   const m=e.target.closest(".item-main"); if(!m) return;
-  const idx=+m.dataset.idx, item=m.closest(".item");
-  if(openItems.has(idx)){openItems.delete(idx); item.classList.remove("open");}
-  else{openItems.add(idx); item.classList.add("open"); maybeFetchCardImage(idx);} });
+  const idx=+m.dataset.idx;
+  if(openItems.has(idx)){ openItems.delete(idx); }
+  else{ openItems.add(idx); maybeFetchCardImage(idx); }
+  // Always re-render (rather than just toggling the "open" class) so the
+  // detail panel's contents — including any image state — get built for
+  // its new open/closed state. maybeFetchCardImage may already have
+  // triggered one render (to show a loading spinner); this one is what
+  // actually shows an image that was already sitting on the item (an
+  // imported Photo URL, or one added by hand) with nothing left to fetch.
+  renderList();
+});
 $("#list").addEventListener("change",e=>{ const inp=e.target.closest(".price-input"); if(!inp) return;
   applyPriceEdit(+inp.dataset.idx, inp.value); });
-$("#list").addEventListener("keydown",e=>{ if(e.key!=="Enter") return; const inp=e.target.closest(".price-input");
-  if(!inp) return; e.preventDefault(); inp.blur(); });
+$("#list").addEventListener("keydown",e=>{
+  if(e.key!=="Enter") return;
+  const priceInp=e.target.closest(".price-input");
+  if(priceInp){ e.preventDefault(); priceInp.blur(); return; }
+  const photoInp=e.target.closest(".photo-input");
+  if(photoInp){ e.preventDefault(); commitPhotoUrl(+photoInp.dataset.idx, photoInp.value); }
+});
 
 $("#csvInput").addEventListener("change",e=>{ const f=e.target.files&&e.target.files[0]; if(f) importFile(f); e.target.value=""; });
 // "use sample" link (delegated, since dbSub is re-rendered)
