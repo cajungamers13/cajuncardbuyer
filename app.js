@@ -99,14 +99,15 @@ async function lookupCardImage(it){
   if(result !== undefined){ imgCache[key] = result; saveImgCache(); }
   return result;
 }
-// The card database only knows individual cards, not sealed product — so a
-// Sealed-typed row (booster box, ETB, ...) skips the automatic lookup
-// entirely and goes straight to "no photo, paste one" rather than searching
-// for a "card" that was never going to match.
-function canAutoLookup(it){ return it.t !== "Sealed" && isPokemonItem(it); }
+// Images — lookup, manual link, and display — are a Card-only feature.
+// The card database only knows individual cards, so it was never going to
+// match a Sealed/Item row like "Jungle Booster Box" anyway; rather than
+// leave a dead-end "no photo, paste one" prompt on every non-card line,
+// those rows skip the whole feature and show no image section at all.
+function canAutoLookup(it){ return isPokemonItem(it); }
 function maybeFetchCardImage(idx){
   const it = ITEMS[idx];
-  if(!it || it.photo || it._imgUrl || it._imgLoading || it._imgChecked) return;
+  if(!it || it.t!=="Card" || it.photo || it._imgUrl || it._imgLoading || it._imgChecked) return;
   if(!canAutoLookup(it)){ it._imgChecked = true; renderList(); return; }
   it._imgLoading = true;
   renderList();
@@ -556,12 +557,12 @@ function renderList(){
       it.notes ? `<div class="drow"><span class="k">Notes</span><span class="val">${esc(it.notes)}</span></div>` : "",
     ].join("");
 
-    // The image block carries async state (loading/checked) that's only ever
-    // meaningful once a line has actually been opened (that's what triggers
-    // the lookup) — skip building it for collapsed rows entirely so nothing
-    // momentarily shows "no photo" before a fetch has even had a chance to run.
+    // Images are Card-only (see canAutoLookup above) and, for open Card
+    // rows, carry async state (loading/checked) that's only ever meaningful
+    // once the row has actually been opened — that's what triggers the
+    // lookup — so skip building the block otherwise entirely.
     let cardImgHtml = "";
-    if(openItems.has(o.idx)){
+    if(it.t==="Card" && openItems.has(o.idx)){
       const photoUrl = it.photo || it._imgUrl;
       if(photoUrl){
         cardImgHtml = `<div class="card-img"><img src="${esc(photoUrl)}" alt="${esc(it.n)}" loading="lazy" onerror="handleCardImgError(${o.idx})"></div>
