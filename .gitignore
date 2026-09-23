@@ -1,0 +1,13 @@
+# Node
+node_modules/
+
+# www/ is generated from the root static files (index.html, app.js, vendor/,
+# icons/, manifest.json, sw.js) by `npm run sync-web` — see package.json.
+# Keeping it out of git avoids two copies of the same app drifting apart;
+# CI regenerates it before every native build.
+www/
+
+# Xcode
+*.xcuserstate
+xcuserdata/
+DerivedData/

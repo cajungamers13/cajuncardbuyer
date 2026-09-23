@@ -1,0 +1,86 @@
+name: Build Android app
+
+# GitHub's ubuntu runners ship with the Android SDK preinstalled, which is
+# why this runs here rather than being buildable in a plain dev sandbox —
+# Google's Maven repo (dl.google.com) is where the Android Gradle Plugin
+# itself lives, and it isn't reachable from an arbitrary network.
+
+on:
+  push:
+    branches: ["claude/charming-tesla-0iouwo"]
+    paths:
+      - "android/**"
+      - "www/**"
+      - "capacitor.config.ts"
+      - "package.json"
+      - ".github/workflows/android-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Sync Capacitor web assets into the native project
+        run: npm run sync-web && npx cap sync android
+
+      - name: Cache Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: tcg-trading-post-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      # A release .aab (what Play Console actually wants) needs a signing
+      # key. Skipped when the repo has none configured, so the workflow
+      # still succeeds and hands back an installable debug APK either way.
+      - name: Build signed release AAB
+        if: ${{ vars.ANDROID_HAS_SIGNING == 'true' }}
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > release.keystore
+          ./gradlew bundleRelease --no-daemon \
+            -Pandroid.injected.signing.store.file="$PWD/release.keystore" \
+            -Pandroid.injected.signing.store.password="$ANDROID_KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$ANDROID_KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$ANDROID_KEY_PASSWORD"
+          rm -f release.keystore
+
+      - name: Upload release AAB
+        if: ${{ vars.ANDROID_HAS_SIGNING == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: tcg-trading-post-release-aab
+          path: android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error

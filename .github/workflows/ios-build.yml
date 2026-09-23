@@ -1,0 +1,121 @@
+name: Build iOS app
+
+# GitHub's macOS runners ship with Xcode preinstalled, which is the only
+# place this can run at all — Apple's toolchain doesn't exist outside
+# macOS, so there's no way to build (let alone sign) an iOS app from a
+# plain Linux dev sandbox.
+
+on:
+  push:
+    branches: ["claude/charming-tesla-0iouwo"]
+    paths:
+      - "ios/**"
+      - "www/**"
+      - "capacitor.config.ts"
+      - "package.json"
+      - ".github/workflows/ios-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Sync Capacitor web assets into the native project
+        run: npm run sync-web && npx cap sync ios
+
+      # No signing certificate/provisioning profile is configured for this
+      # repo, so this proves the project actually compiles (an unsigned
+      # build for the Simulator) rather than producing an installable
+      # device build — that needs the signed-archive step below, which
+      # only runs once IOS_HAS_SIGNING is turned on.
+      - name: Build for iOS Simulator (compile check, unsigned)
+        if: ${{ vars.IOS_HAS_SIGNING != 'true' }}
+        working-directory: ios/App
+        run: |
+          xcodebuild build \
+            -project App.xcodeproj \
+            -scheme App \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO
+
+      # A real device / App Store build needs an Apple Distribution
+      # certificate + provisioning profile imported into a temporary
+      # keychain. Skipped unless the repo has those secrets configured —
+      # see the submission runbook for exactly what to add and where.
+      - name: Import signing certificate and provisioning profile
+        if: ${{ vars.IOS_HAS_SIGNING == 'true' }}
+        env:
+          IOS_CERTIFICATE_BASE64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_PROVISION_PROFILE_BASE64: ${{ secrets.IOS_PROVISION_PROFILE_BASE64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+        run: |
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+
+          echo "$IOS_CERTIFICATE_BASE64" | base64 -d > certificate.p12
+          security import certificate.p12 -k build.keychain -P "$IOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          rm -f certificate.p12
+
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "$IOS_PROVISION_PROFILE_BASE64" | base64 -d > ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
+
+      - name: Archive and export signed .ipa
+        if: ${{ vars.IOS_HAS_SIGNING == 'true' }}
+        working-directory: ios/App
+        env:
+          IOS_TEAM_ID: ${{ vars.IOS_TEAM_ID }}
+          IOS_EXPORT_METHOD: ${{ vars.IOS_EXPORT_METHOD || 'app-store-connect' }}
+        run: |
+          xcodebuild archive \
+            -project App.xcodeproj \
+            -scheme App \
+            -sdk iphoneos \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            DEVELOPMENT_TEAM="$IOS_TEAM_ID"
+
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>$IOS_EXPORT_METHOD</string>
+            <key>teamID</key>
+            <string>$IOS_TEAM_ID</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+          </dict>
+          </plist>
+          PLIST
+
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export"
+
+      - name: Upload .ipa
+        if: ${{ vars.IOS_HAS_SIGNING == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: tcg-trading-post-ipa
+          path: ${{ runner.temp }}/export/*.ipa
+          if-no-files-found: error
