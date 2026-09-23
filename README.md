@@ -55,3 +55,9 @@ percentage.
 - `app.js` — import engine, tier math, and rendering/UI logic
 - `vendor/xlsx.core.min.js` — [SheetJS](https://sheetjs.com) (Apache-2.0), vendored for
   offline `.xlsx`/`.xls` parsing — see `vendor/xlsx-LICENSE.txt`
+- `manifest.json` / `sw.js` / `icons/` — the app is also an installable,
+  offline-capable PWA
+- `android/`, `ios/` — native iOS and Android wrappers around this same
+  app, built with [Capacitor](https://capacitorjs.com/); see
+  [`MOBILE_APPS.md`](MOBILE_APPS.md) for how to build and submit them to
+  the App Store and Play Store
